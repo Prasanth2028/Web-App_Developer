@@ -1,6 +1,7 @@
 # Azure Pipeline for .NET 8 Razor Pages Application
 trigger:
 - main
+- master
 
 pool:
   vmImage: 'windows-latest'
