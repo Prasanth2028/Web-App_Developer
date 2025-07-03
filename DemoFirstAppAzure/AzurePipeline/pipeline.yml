@@ -3,38 +3,57 @@ trigger:
 - main
 - master
 
-pool:
-  vmImage: 'windows-latest'
+stages:
+  - stage: CI
+    displayName: 'Build and Test'
+    pool:
+      vmImage: 'windows-latest'
+    variables:
+      buildConfiguration: 'Release'
+    jobs:
+      - job: BuildAndTest
+        steps:
+          - task: NuGetToolInstaller@1
+            displayName: 'Install NuGet'
+          - task: UseDotNet@2
+            inputs:
+              packageType: 'sdk'
+              version: '8.x'
+              installationPath: $(Agent.ToolsDirectory)/dotnet
+            displayName: 'Install .NET 8 SDK'
+          - script: dotnet restore
+            displayName: 'Restore NuGet packages'
+          - script: dotnet build --configuration $(buildConfiguration) --no-restore
+            displayName: 'Build the project'
+          - script: dotnet test --no-build --verbosity normal
+            displayName: 'Run tests'
+          - script: dotnet publish --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/publish
+            displayName: 'Publish the project'
+          - task: PublishBuildArtifacts@1
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)/publish'
+              ArtifactName: 'drop'
+              publishLocation: 'Container'
+            displayName: 'Publish Build Artifacts'
 
-variables:
-  buildConfiguration: 'Release'
-
-steps:
-- task: NuGetToolInstaller@1
-  displayName: 'Install NuGet'
-
-- task: UseDotNet@2
-  inputs:
-    packageType: 'sdk'
-    version: '8.x'
-    installationPath: $(Agent.ToolsDirectory)/dotnet
-  displayName: 'Install .NET 8 SDK'
-
-- script: dotnet restore
-  displayName: 'Restore NuGet packages'
-
-- script: dotnet build --configuration $(buildConfiguration) --no-restore
-  displayName: 'Build the project'
-
-- script: dotnet test --no-build --verbosity normal
-  displayName: 'Run tests'
-
-- script: dotnet publish --configuration $(buildConfiguration) --output $(Build.ArtifactStagingDirectory)/publish
-  displayName: 'Publish the project'
-
-- task: PublishBuildArtifacts@1
-  inputs:
-    PathtoPublish: '$(Build.ArtifactStagingDirectory)/publish'
-    ArtifactName: 'drop'
-    publishLocation: 'Container'
-  displayName: 'Publish Build Artifacts'
+  - stage: CD
+    displayName: 'Deploy to Azure'
+    dependsOn: CI
+    pool:
+      vmImage: 'windows-latest'
+    jobs:
+      - deployment: DeployWebApp
+        environment: 'Approvals'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: drop
+                - task: AzureWebApp@1
+                  inputs:
+                    azureSubscription: 'ADO'
+                    appType: 'webApp'
+                    appName: 'webapp-manual-01'
+                    package: '$(Pipeline.Workspace)/drop'
+                  displayName: 'Deploy to Azure Web App'
